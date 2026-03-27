@@ -7,6 +7,10 @@ class BookingStates(StatesGroup):
     waiting_checkout = State()
     entering_wishes = State()
 
+class SetupStates(StatesGroup):
+    choosing_language = State()
+    choosing_currency = State()
+
 class AdminStates(StatesGroup):
     adding_apartment_name = State()
     adding_apartment_desc = State()
@@ -17,6 +21,7 @@ class AdminStates(StatesGroup):
     adding_apartment_lat = State()
     adding_apartment_lng = State()
     adding_apartment_price = State()
+    searching_user = State()
     adding_staff_id = State()
     adding_staff_role = State()
     adding_staff_name = State()
