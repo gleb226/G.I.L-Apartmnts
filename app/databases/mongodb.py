@@ -72,6 +72,24 @@ async def delete_apartment(ap_id):
 async def set_apartment_availability(ap_id, status: bool):
     await apartments_col.update_one({"_id": ObjectId(ap_id)}, {"$set": {"is_available": status}})
 
+async def is_apartment_free(ap_id, start_date_str, end_date_str):
+    start_dt = datetime.datetime.strptime(start_date_str, "%d.%m.%Y")
+    end_dt = datetime.datetime.strptime(end_date_str, "%d.%m.%Y")
+    
+    bookings = await bookings_col.find({
+        "ap_id": ObjectId(ap_id),
+        "status": {"$in": ["paid_50", "confirmed", "completed"]}
+    }).to_list(None)
+    
+    for b in bookings:
+        b_start = datetime.datetime.strptime(b['start_date'], "%d.%m.%Y")
+        b_end = datetime.datetime.strptime(b['end_date'], "%d.%m.%Y")
+        
+        if (start_dt < b_end) and (end_dt > b_start):
+            return False, b['end_date']
+            
+    return True, None
+
 async def create_booking(user_id, ap_id, start_date, end_date, phone, wishes, total_price):
     res = await bookings_col.insert_one({
         "user_id": user_id, 
@@ -96,6 +114,9 @@ async def get_booking(booking_id):
 
 async def update_booking_status(booking_id, status):
     await bookings_col.update_one({"_id": ObjectId(booking_id)}, {"$set": {"status": status}})
+
+async def delete_booking(booking_id):
+    await bookings_col.delete_one({"_id": ObjectId(booking_id)})
 
 async def get_active_bookings():
     return await bookings_col.find({"status": {"$in": ["paid_50", "confirmed"]}}).sort("created_at", -1).to_list(None)
