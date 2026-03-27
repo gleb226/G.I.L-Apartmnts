@@ -18,9 +18,12 @@ class AdminStates(StatesGroup):
     adding_apartment_beds = State()
     adding_apartment_area = State()
     adding_apartment_guests = State()
-    adding_apartment_lat = State()
-    adding_apartment_lng = State()
+    adding_apartment_address = State()
     adding_apartment_price = State()
+    adding_apartment_photo = State()
+    
+    editing_apartment_field = State()
+
     searching_user = State()
     adding_staff_id = State()
     adding_staff_role = State()

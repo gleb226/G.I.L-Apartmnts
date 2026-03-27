@@ -4,7 +4,7 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from app.databases.mongodb import upsert_user, get_user, get_apartments, get_apartment, create_booking, update_booking_status, get_booking, get_admins, get_all_admins_and_bosses, set_apartment_availability, update_user_pref, log_error, is_apartment_free
 from app.keyboards.all_keyboards import main_menu_kb, apartments_inline_kb, phone_kb, confirm_booking_inline_kb, booking_action_inline_kb, admin_panel_kb, user_reply_inline_kb, admin_reply_inline_kb, ap_info_inline_kb, info_only_apartment_kb, language_kb, currency_kb, settings_kb
-from app.utils.states import BookingStates, UserChatStates, SetupStates
+from app.utils.states import BookingStates, UserChatStates, SetupStates, AdminStates
 from app.common.token import PAYMENT_TOKEN, BOSS_IDS
 from app.utils.currency import get_usd_rate, format_price
 import datetime
@@ -28,22 +28,27 @@ async def start_cmd(message: Message, state: FSMContext):
     await state.clear()
     user = await get_user(message.from_user.id)
     role = "boss" if message.from_user.id in BOSS_IDS else (user.get("role", "user") if user else "user")
-    if not user:
-        await upsert_user(message.from_user.id, message.from_user.username, role=role, name=message.from_user.full_name)
-        user = await get_user(message.from_user.id)
-    elif user.get("role") != role:
-        await update_user_pref(message.from_user.id, role=role)
-        user["role"] = role
+    
+    await upsert_user(
+        user_id=message.from_user.id, 
+        username=message.from_user.username, 
+        role=role, 
+        name=message.from_user.full_name
+    )
+    user = await get_user(message.from_user.id)
+
     if not user.get("language"):
         l = message.from_user.language_code
         lang = "uk" if l in ["uk", "ru"] else "en"
         await update_user_pref(message.from_user.id, language=lang)
         user = await get_user(message.from_user.id)
+        
     if not user.get("currency"):
         msg = "Оберіть валюту / Choose currency:"
         await message.answer(msg, reply_markup=currency_kb())
         await state.set_state(SetupStates.choosing_currency)
         return
+        
     if user['language'] == 'uk':
         msg = "✨ <b>Вітаємо у G.I.L Apartments!</b>\n\nМи надаємо найкращі апартаменти для вашого комфортного відпочинку.\nОберіть потрібний розділ меню нижче: 👇"
     else:
@@ -55,16 +60,46 @@ async def set_currency(callback: CallbackQuery, state: FSMContext):
     curr = callback.data.split("_")[-1]
     await update_user_pref(callback.from_user.id, currency=curr)
     user = await get_user(callback.from_user.id)
-    msg = "Налаштування збережено!" if user['language'] == 'uk' else "Settings saved!"
-    await callback.message.edit_text(msg)
-    await callback.message.answer(msg, reply_markup=main_menu_kb(user['role'], lang=user['language']))
+    
+    msg = "✨ <b>Налаштування збережено!</b>\n\nОберіть потрібний розділ меню:" if user['language'] == 'uk' else "✨ <b>Settings saved!</b>\n\nChoose the menu section:"
+    
+    await callback.message.delete()
+    await callback.message.answer(msg, reply_markup=main_menu_kb(user['role'], lang=user['language']), parse_mode="HTML")
     await state.clear()
     await callback.answer()
 
 async def show_profile_internal(message: Message, user_id: int):
     u = await get_user(user_id)
     lang = u.get('language', 'uk')
-    text = (f"👤 <b>Ваш профіль:</b>\n\nID: <code>{u['user_id']}</code>\nІм'я: {u.get('name', '-')}\nМова: Українська\nВалюта: {u.get('currency', 'uah').upper()}" if lang == 'uk' else f"👤 <b>Your Profile:</b>\n\nID: <code>{u['user_id']}</code>\nName: {u.get('name', '-')}\nLanguage: English\nCurrency: {u.get('currency', 'uah').upper()}")
+    name = u.get('name', '-')
+    phone = u.get('phone', '-')
+    role = u.get('role', 'user')
+    curr = u.get('currency', 'uah').upper()
+    
+    if name.lower() in ['boss', 'admin']:
+        name = message.from_user.full_name
+    
+    role_names = {
+        "boss": "Власник (Boss)" if lang == 'uk' else "Owner (Boss)",
+        "admin": "Адміністратор" if lang == 'uk' else "Administrator",
+        "user": "Клієнт" if lang == 'uk' else "Client"
+    }
+    role_str = role_names.get(role, role)
+    
+    if lang == 'uk':
+        text = (f"👤 <b>Ваш профіль:</b>\n\n"
+                f"Ім'я: {name}\n"
+                f"Телефон: {phone}\n"
+                f"Статус: {role_str}\n"
+                f"Мова: Українська\n"
+                f"Валюта: {curr}")
+    else:
+        text = (f"👤 <b>Your Profile:</b>\n\n"
+                f"Name: {name}\n"
+                f"Phone: {phone}\n"
+                f"Status: {role_str}\n"
+                f"Language: English\n"
+                f"Currency: {curr}")
     await message.answer(text, reply_markup=settings_kb(lang=lang), parse_mode="HTML")
 
 @router.message(F.text == "👤 Профіль")
@@ -82,8 +117,8 @@ async def change_lang_start(callback: CallbackQuery, state: FSMContext):
 async def set_language(callback: CallbackQuery, state: FSMContext):
     lang = callback.data.split("_")[-1]
     await update_user_pref(callback.from_user.id, language=lang)
-    user = await get_user(callback.from_user.id)
     await callback.answer("Мову змінено" if lang == 'uk' else "Language changed")
+    await callback.message.delete()
     await show_profile_internal(callback.message, callback.from_user.id)
     await state.clear()
 
@@ -95,9 +130,10 @@ async def change_curr_start(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "back_to_main")
 async def back_to_main_handler(callback: CallbackQuery, state: FSMContext):
+    u = await get_user(callback.from_user.id)
     await state.clear()
-    await start_cmd(callback.message, state)
     await callback.message.delete()
+    await callback.message.answer("✨ <b>Головне меню:</b>" if u['language'] == 'uk' else "✨ <b>Main Menu:</b>", reply_markup=main_menu_kb(u['role'], lang=u['language']), parse_mode="HTML")
     await callback.answer()
 
 @router.callback_query(F.data == "back_to_list")
@@ -150,7 +186,11 @@ async def handle_ap_click(callback: CallbackQuery, state: FSMContext):
     else:
         p = format_price(ap['price'], await get_usd_rate(), u.get('currency', 'uah'))
         msg = (f"🏨 <b>{ap['title'].get(u['language'], ap.get('name'))}</b>\n\n{ap['description'].get(u['language'], '-')}\n\n💰 <b>Ціна:</b> {p}" if u['language'] == 'uk' else f"🏨 <b>{ap['title'].get(u['language'], ap.get('name'))}</b>\n\n{ap['description'].get(u['language'], '-')}\n\n💰 <b>Price:</b> {p}")
-        await callback.message.edit_text(msg, reply_markup=info_only_apartment_kb(ap['lat'], ap['lng'], u['language']), parse_mode="HTML")
+        if ap.get('photo'):
+            await callback.message.answer_photo(ap['photo'], caption=msg, reply_markup=info_only_apartment_kb(ap['lat'], ap['lng'], u['language']), parse_mode="HTML")
+            await callback.message.delete()
+        else:
+            await callback.message.edit_text(msg, reply_markup=info_only_apartment_kb(ap['lat'], ap['lng'], u['language']), parse_mode="HTML")
     await callback.answer()
 
 @router.message(BookingStates.entering_phone, F.contact)
@@ -217,7 +257,7 @@ async def wishes_input(message: Message, state: FSMContext, bot: Bot):
     b_id = await create_booking(u['user_id'], data['ap_id'], data['checkin_str'], data['checkout_str'], data['phone'], w, data['total_price'])
     p = format_price(data['total_price']*0.5, await get_usd_rate(), u.get('currency', 'uah'))
     
-    # Admin notification (Only for admins, not boss)
+    # Notify only admins (NOT boss)
     for a in await get_admins():
         try:
             al = a.get('language', 'uk')
@@ -352,7 +392,7 @@ async def success_pay(message: Message, bot: Bot):
         )
         await message.answer(success_msg, parse_mode="HTML")
         
-        # Notify only admins
+        # Notify only admins (NOT boss)
         for a in await get_admins():
             try:
                 al = a.get('language', 'uk')
@@ -373,13 +413,36 @@ async def success_pay(message: Message, bot: Bot):
         )
         await message.answer(final_msg, parse_mode="HTML")
         
-        # Notify only admins
+        # Notify only admins (NOT boss)
         for a in await get_admins():
             try:
                 al = a.get('language', 'uk')
                 await bot.send_message(a['user_id'], f"✅ Full Payment received!" if al == 'en' else f"✅ Отримано повну оплату!", reply_markup=booking_action_inline_kb(b_id, al, "completed"))
             except Exception as e:
                 await log_error(f"Error notifying admin about final payment: {e}", traceback.format_exc())
+
+@router.callback_query(F.data == "user_answer_admin")
+async def user_answer_start(callback: CallbackQuery, state: FSMContext):
+    u = await get_user(callback.from_user.id)
+    await callback.message.answer("Введіть вашу відповідь адміністратору:" if u.get('language') == 'uk' else "Enter your answer to the administrator:")
+    await state.set_state(UserChatStates.writing_to_admin)
+    await callback.answer()
+
+@router.message(UserChatStates.writing_to_admin)
+async def user_answer_send(message: Message, state: FSMContext, bot: Bot):
+    u = await get_user(message.from_user.id)
+    lang = u.get('language', 'uk')
+    
+    admins = await get_admins()
+    for a in admins:
+        try:
+            al = a.get('language', 'uk')
+            header = f"💬 <b>Відповідь від гостя {u.get('name', 'N/A')}:</b>\n\n" if al == 'uk' else f"💬 <b>Answer from guest {u.get('name', 'N/A')}:</b>\n\n"
+            await bot.send_message(a['user_id'], header + message.text, reply_markup=admin_reply_inline_kb(u['user_id'], al), parse_mode="HTML")
+        except: pass
+    
+    await message.answer("✅ Ваше повідомлення відправлено адміністратору." if lang == 'uk' else "✅ Your message has been sent to the administrator.")
+    await state.clear()
 
 @router.message(F.text == "📊 Адмін-панель")
 @router.message(F.text == "📊 Admin Panel")

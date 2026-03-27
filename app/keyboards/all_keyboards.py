@@ -128,17 +128,39 @@ def apartment_mgmt_inline_kb(apartments, lang="uk"):
 def apartment_item_mgmt_kb(ap_id, is_available, lang="uk"):
     builder = InlineKeyboardBuilder()
     if lang == "uk":
+        edit_text = "📝 Редагувати"
         toggle_text = "🔒 Вимкнути" if is_available else "🔓 Увімкнути"
         delete_text = "🗑️ Видалити"
         back_text = "⬅️ Назад"
     else:
+        edit_text = "📝 Edit"
         toggle_text = "🔒 Disable" if is_available else "🔓 Enable"
         delete_text = "🗑️ Delete"
         back_text = "⬅️ Back"
+    builder.button(text=edit_text, callback_data=f"edit_ap_{ap_id}")
     builder.button(text=toggle_text, callback_data=f"toggle_ap_{ap_id}")
     builder.button(text=delete_text, callback_data=f"delete_ap_{ap_id}")
     builder.button(text=back_text, callback_data="admin_apartments_back")
     builder.adjust(1)
+    return builder.as_markup()
+
+def apartment_edit_fields_kb(ap_id, lang="uk"):
+    builder = InlineKeyboardBuilder()
+    fields = [
+        ("title", "Назва" if lang=="uk" else "Title"),
+        ("description", "Опис" if lang=="uk" else "Description"),
+        ("price", "Ціна" if lang=="uk" else "Price"),
+        ("photo", "Фото" if lang=="uk" else "Photo"),
+        ("rooms", "Кімнати" if lang=="uk" else "Rooms"),
+        ("beds", "Ліжка" if lang=="uk" else "Beds"),
+        ("guests", "Гості" if lang=="uk" else "Guests"),
+        ("address", "Адреса" if lang=="uk" else "Address"),
+        ("area", "Площа" if lang=="uk" else "Area")
+    ]
+    for field_id, field_name in fields:
+        builder.button(text=field_name, callback_data=f"efield_{ap_id}_{field_id}")
+    builder.button(text="⬅️ Назад" if lang == "uk" else "⬅️ Back", callback_data=f"manage_ap_{ap_id}")
+    builder.adjust(2)
     return builder.as_markup()
 
 def confirm_ap_add_kb(lang="uk"):

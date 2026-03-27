@@ -49,11 +49,8 @@ async def get_admins():
 async def get_all_admins_and_bosses():
     return await users_col.find({"role": {"$in": ["admin", "boss"]}}).to_list(None)
 
-async def get_apartments(only_available=False):
-    q = {}
-    if only_available:
-        q = {"is_available": True}
-    return await apartments_col.find(q).to_list(None)
+async def get_apartments():
+    return await apartments_col.find({}).to_list(None)
 
 async def get_apartment(ap_id):
     try:
@@ -62,15 +59,13 @@ async def get_apartment(ap_id):
         return None
 
 async def add_apartment(data: dict):
-    if "is_available" not in data:
-        data["is_available"] = True
     await apartments_col.insert_one(data)
+
+async def update_apartment(ap_id, data: dict):
+    await apartments_col.update_one({"_id": ObjectId(ap_id)}, {"$set": data})
 
 async def delete_apartment(ap_id):
     await apartments_col.delete_one({"_id": ObjectId(ap_id)})
-
-async def set_apartment_availability(ap_id, status: bool):
-    await apartments_col.update_one({"_id": ObjectId(ap_id)}, {"$set": {"is_available": status}})
 
 async def is_apartment_free(ap_id, start_date_str, end_date_str):
     start_dt = datetime.datetime.strptime(start_date_str, "%d.%m.%Y")
@@ -89,6 +84,22 @@ async def is_apartment_free(ap_id, start_date_str, end_date_str):
             return False, b['end_date']
             
     return True, None
+
+async def get_apartment_occupied_dates(ap_id):
+    today = datetime.datetime.now().strftime("%d.%m.%Y")
+    bookings = await bookings_col.find({
+        "ap_id": ObjectId(ap_id),
+        "status": {"$in": ["paid_50", "confirmed", "completed"]},
+        "end_date": {"$gte": today}
+    }).to_list(None)
+    
+    occupied_dates = []
+    for b in bookings:
+        occupied_dates.append({
+            "start_date": b['start_date'],
+            "end_date": b['end_date']
+        })
+    return occupied_dates
 
 async def create_booking(user_id, ap_id, start_date, end_date, phone, wishes, total_price):
     res = await bookings_col.insert_one({
@@ -120,6 +131,21 @@ async def delete_booking(booking_id):
 
 async def get_active_bookings():
     return await bookings_col.find({"status": {"$in": ["paid_50", "confirmed"]}}).sort("created_at", -1).to_list(None)
+
+async def delete_expired_bookings():
+    threshold_dt = datetime.datetime.now() - datetime.timedelta(days=1)
+    
+    all_bookings = await bookings_col.find({
+        "status": {"$in": ["paid_50", "confirmed", "completed", "rejected"]}
+    }).to_list(None)
+
+    for booking in all_bookings:
+        try:
+            end_dt = datetime.datetime.strptime(booking['end_date'], "%d.%m.%Y")
+            if end_dt < threshold_dt:
+                await bookings_col.delete_one({"_id": booking['_id']})
+        except ValueError:
+            await log_error(f"Failed to parse end_date for booking {booking['_id']}: {booking['end_date']}", "Date parsing error")
 
 async def log_error(error_msg, tb):
     await errors_col.insert_one({"error": error_msg, "traceback": tb, "timestamp": datetime.datetime.utcnow()})

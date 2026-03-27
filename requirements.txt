@@ -1,5 +1,6 @@
-aiogram==3.10.0
-motor==3.5.1
-python-dotenv==1.0.1
-aiohttp==3.9.5
-bson==0.5.10
+aiogram
+motor
+dnspython
+python-dotenv
+aiohttp
+googlemaps

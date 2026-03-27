@@ -1,14 +1,50 @@
 from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery, LabeledPrice
+from aiogram.types import Message, CallbackQuery, LabeledPrice, PhotoSize, Location
 from aiogram.fsm.context import FSMContext
-from app.databases.mongodb import get_user, get_apartments, add_apartment, delete_apartment, get_apartment, set_apartment_availability, get_booking, update_booking_status, set_user_role, get_user_by_query, get_active_bookings, get_all_admins_and_bosses, update_user_pref, delete_booking, log_error
-from app.keyboards.all_keyboards import admin_panel_kb, apartment_mgmt_inline_kb, apartment_item_mgmt_kb, staff_mgmt_inline_kb, booking_action_inline_kb, user_reply_inline_kb, staff_delete_inline_kb, admin_reply_inline_kb, confirm_ap_add_kb
+from app.databases.mongodb import get_user, get_apartments, add_apartment, delete_apartment, get_apartment, set_apartment_availability, get_booking, update_booking_status, set_user_role, get_user_by_query, get_active_bookings, get_all_admins_and_bosses, update_user_pref, delete_booking, log_error, get_admins, update_apartment
+from app.keyboards.all_keyboards import admin_panel_kb, apartment_mgmt_inline_kb, apartment_item_mgmt_kb, staff_mgmt_inline_kb, booking_action_inline_kb, user_reply_inline_kb, staff_delete_inline_kb, admin_reply_inline_kb, confirm_ap_add_kb, apartment_edit_fields_kb
 from app.utils.states import AdminStates
-from app.common.token import PAYMENT_TOKEN
+from app.common.token import PAYMENT_TOKEN, GOOGLE_MAPS_API_KEY
 from app.utils.currency import get_usd_rate, format_price
 import traceback
+import googlemaps
+import re
+import aiohttp
 
 router = Router()
+
+async def resolve_coords_from_text(text: str):
+    # Try to find @lat,lng in URL
+    match = re.search(r'@([-+]?\d+\.\d+),([-+]?\d+\.\d+)', text)
+    if match:
+        return float(match.group(1)), float(match.group(2))
+    
+    # If it's a short link, try to resolve it
+    if "maps.app.goo.gl" in text or "goo.gl/maps" in text:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(text, allow_redirects=True) as response:
+                    final_url = str(response.url)
+                    match = re.search(r'@([-+]?\d+\.\d+),([-+]?\d+\.\d+)', final_url)
+                    if match:
+                        return float(match.group(1)), float(match.group(2))
+                    match = re.search(r'q=([-+]?\d+\.\d+),([-+]?\d+\.\d+)', final_url)
+                    if match:
+                        return float(match.group(1)), float(match.group(2))
+        except:
+            pass
+            
+    if GOOGLE_MAPS_API_KEY:
+        try:
+            gmaps = googlemaps.Client(key=GOOGLE_MAPS_API_KEY)
+            geocode_result = gmaps.geocode(text)
+            if geocode_result:
+                loc = geocode_result[0]['geometry']['location']
+                return loc['lat'], loc['lng']
+        except:
+            pass
+            
+    return 0, 0
 
 @router.callback_query(F.data == "back_to_staff_main")
 async def back_to_staff_main_handler(callback: CallbackQuery):
@@ -29,11 +65,40 @@ async def view_active_bookings(message: Message):
             return
         for b in bookings:
             ap = await get_apartment(b['ap_id'])
+            guest = await get_user(b['user_id'])
+            
             name = ap['title'][lang] if ap and isinstance(ap.get('title'), dict) and lang in ap['title'] else (ap.get('name', 'Apartments') if ap else "⚠️ Removed")
             status_text = ("💳 Передплата 50%" if b['status'] == "paid_50" else "✅ Підтверджено") if lang == 'uk' else ("💳 Prepayment 50%" if b['status'] == "paid_50" else "✅ Confirmed")
             rate = await get_usd_rate()
             price_text = format_price(b['total_price'], rate, u.get('currency', 'uah'))
-            msg = (f"🔖 <b>ID:</b> <code>{str(b['_id'])}</code>\n🏠 <b>Об'єкт:</b> {name}\n📅 <b>Період:</b> {b['start_date']} — {b['end_date']}\n👤 <b>ID гостя:</b> <code>{b['user_id']}</code>\n📞 <b>Контакт:</b> {b['phone']}\n💰 <b>Сума:</b> {price_text}\n⚙️ <b>Статус:</b> {status_text}") if lang == 'uk' else (f"🔖 <b>ID:</b> <code>{str(b['_id'])}</code>\n🏠 <b>Object:</b> {name}\n📅 <b>Period:</b> {b['start_date']} — {b['end_date']}\n👤 <b>Guest ID:</b> <code>{b['user_id']}</code>\n📞 <b>Contact:</b> {b['phone']}\n💰 <b>Total:</b> {price_text}\n⚙️ <b>Status:</b> {status_text}")
+            
+            guest_name = guest.get('name', 'N/A') if guest else 'N/A'
+            guest_username = f"@{guest.get('username')}" if guest and guest.get('username') else 'N/A'
+            guest_phone = b.get('phone', 'N/A')
+            guest_id = b['user_id']
+
+            if lang == 'uk':
+                msg = (
+                    f"🏠 <b>Об'єкт:</b> {name}\n"
+                    f"📅 <b>Період:</b> {b['start_date']} — {b['end_date']}\n\n"
+                    f"👤 <b>Гість:</b> {guest_name}\n"
+                    f"🔗 <b>Username:</b> {guest_username}\n"
+                    f"📞 <b>Телефон:</b> {guest_phone}\n"
+                    f"🆔 <b>ID гостя:</b> <code>{guest_id}</code>\n\n"
+                    f"💰 <b>Сума:</b> {price_text}\n"
+                    f"⚙️ <b>Статус:</b> {status_text}"
+                )
+            else:
+                msg = (
+                    f"🏠 <b>Object:</b> {name}\n"
+                    f"📅 <b>Period:</b> {b['start_date']} — {b['end_date']}\n\n"
+                    f"👤 <b>Guest:</b> {guest_name}\n"
+                    f"🔗 <b>Username:</b> {guest_username}\n"
+                    f"📞 <b>Phone:</b> {guest_phone}\n"
+                    f"🆔 <b>Guest ID:</b> <code>{guest_id}</code>\n\n"
+                    f"💰 <b>Total:</b> {price_text}\n"
+                    f"⚙️ <b>Status:</b> {status_text}"
+                )
             await message.answer(msg, reply_markup=booking_action_inline_kb(str(b['_id']), lang=lang, status=b['status']), parse_mode="HTML")
 
 @router.message(F.text == "🏢 Об'єкти")
@@ -98,11 +163,6 @@ async def add_ap_area(message: Message, state: FSMContext):
         await state.set_state(AdminStates.adding_apartment_guests)
     except ValueError:
         await message.answer("❌ Будь ласка, введіть числове значення для площі." if lang == 'uk' else "❌ Please enter a numeric value for the area.")
-        await state.set_state(AdminStates.adding_apartment_area)
-    except Exception as e:
-        await log_error(f"Error in add_ap_area: {e}", traceback.format_exc())
-        await message.answer("❌ Помилка. Спробуйте ще раз." if lang == 'uk' else "❌ Error. Try again.")
-        await state.clear()
 
 @router.message(AdminStates.adding_apartment_guests)
 async def add_ap_guests(message: Message, state: FSMContext):
@@ -112,40 +172,29 @@ async def add_ap_guests(message: Message, state: FSMContext):
         await message.answer("❌ Будь ласка, введіть числове значення для кількості гостей." if lang == 'uk' else "❌ Please enter a numeric value for the number of guests.")
         return
     await state.update_data(guests=message.text)
-    await message.answer("Координати - Latitude (або 0):" if lang == 'uk' else "Coordinates - Latitude (or 0):")
-    await state.set_state(AdminStates.adding_apartment_lat)
+    await message.answer("Надішліть локацію (через скріпку 📎) або посилання з Google Maps:" if lang == 'uk' else "Send location (via attachment 📎) or a Google Maps link:")
+    await state.set_state(AdminStates.adding_apartment_address)
 
-@router.message(AdminStates.adding_apartment_lat)
-async def add_ap_lat(message: Message, state: FSMContext):
+@router.message(AdminStates.adding_apartment_address, F.location)
+@router.message(AdminStates.adding_apartment_address, F.text)
+async def add_ap_address(message: Message, state: FSMContext):
     u = await get_user(message.from_user.id)
     lang = u.get('language', 'uk')
-    try:
-        await state.update_data(lat=float(message.text.replace(',', '.')))
-        await message.answer("Координати - Longitude (або 0):" if lang == 'uk' else "Coordinates - Longitude (or 0):")
-        await state.set_state(AdminStates.adding_apartment_lng)
-    except ValueError:
-        await message.answer("❌ Будь ласка, введіть числове значення для Latitude." if lang == 'uk' else "❌ Please enter a numeric value for Latitude.")
-        await state.set_state(AdminStates.adding_apartment_lat)
-    except Exception as e:
-        await log_error(f"Error in add_ap_lat: {e}", traceback.format_exc())
-        await message.answer("❌ Помилка." if lang == 'uk' else "❌ Error.")
-        await state.clear()
-
-@router.message(AdminStates.adding_apartment_lng)
-async def add_ap_lng(message: Message, state: FSMContext):
-    u = await get_user(message.from_user.id)
-    lang = u.get('language', 'uk')
-    try:
-        await state.update_data(lng=float(message.text.replace(',', '.')))
-        await message.answer("Ціна за добу (грн):" if lang == 'uk' else "Price per day (UAH):")
-        await state.set_state(AdminStates.adding_apartment_price)
-    except ValueError:
-        await message.answer("❌ Будь ласка, введіть числове значення для Longitude." if lang == 'uk' else "❌ Please enter a numeric value for Longitude.")
-        await state.set_state(AdminStates.adding_apartment_lng)
-    except Exception as e:
-        await log_error(f"Error in add_ap_lng: {e}", traceback.format_exc())
-        await message.answer("❌ Помилка." if lang == 'uk' else "❌ Error.")
-        await state.clear()
+    
+    if message.location:
+        lat, lng = message.location.latitude, message.location.longitude
+        address = f"TG Location: {lat}, {lng}"
+    else:
+        address = message.text
+        lat, lng = await resolve_coords_from_text(address)
+    
+    if lat == 0 and lng == 0:
+        await message.answer("⚠️ Не вдалося розпізнати локацію. Будь ласка, надішліть посилання з Google Maps або локацію через Telegram:" if lang == 'uk' else "⚠️ Could not recognize location. Please send a Google Maps link or location via Telegram:")
+        return
+    
+    await state.update_data(address=address, lat=lat, lng=lng)
+    await message.answer("Ціна за добу (грн):" if lang == 'uk' else "Price per day (UAH):")
+    await state.set_state(AdminStates.adding_apartment_price)
 
 @router.message(AdminStates.adding_apartment_price)
 async def add_ap_price(message: Message, state: FSMContext):
@@ -154,16 +203,43 @@ async def add_ap_price(message: Message, state: FSMContext):
     if not message.text.isdigit():
         await message.answer("❌ Будь ласка, введіть числове значення для ціни." if lang == 'uk' else "❌ Please enter a numeric value for the price.")
         return
-    price = int(message.text)
+    await state.update_data(price=int(message.text))
+    await message.answer("Надішліть фото об'єкта або посилання на нього:" if lang == 'uk' else "Send object photo or its link:")
+    await state.set_state(AdminStates.adding_apartment_photo)
+
+@router.message(AdminStates.adding_apartment_photo, F.photo)
+@router.message(AdminStates.adding_apartment_photo, F.text)
+async def add_ap_photo(message: Message, state: FSMContext):
+    u = await get_user(message.from_user.id)
+    lang = u.get('language', 'uk')
+    
+    if message.photo:
+        photo_id = message.photo[-1].file_id
+    else:
+        photo_id = message.text
+        
+    await state.update_data(img=photo_id)
     d = await state.get_data()
-    await state.update_data(price=price)
-    summary = (f"📑 <b>Перевірка:</b>\n\nНазва: {d['name']}\nКімнат: {d['rooms']}\nЦіна: {price} грн") if lang=='uk' else (f"📑 <b>Check:</b>\n\nName: {d['name']}\nRooms: {d['rooms']}\nPrice: {price} UAH")
+    summary = (f"📑 <b>Перевірка:</b>\n\nНазва: {d['name']}\nЛокація: {d['lat']}, {d['lng']}\nЦіна: {d['price']} грн") if lang=='uk' else (f"📑 <b>Check:</b>\n\nName: {d['name']}\nLocation: {d['lat']}, {d['lng']}\nPrice: {d['price']} UAH")
     await message.answer(summary, reply_markup=confirm_ap_add_kb(lang), parse_mode="HTML")
 
 @router.callback_query(F.data == "confirm_add_ap")
 async def save_ap(callback: CallbackQuery, state: FSMContext):
     d = await state.get_data()
-    await add_apartment({"title": {"uk": d['name'], "en": d['name']}, "description": {"uk": d['desc'], "en": d['desc']}, "rooms": d['rooms'], "beds": d['beds'], "area": d['area'], "guests": d['guests'], "lat": d['lat'], "lng": d['lng'], "price": d['price'], "is_available": True})
+    await add_apartment({
+        "title": {"uk": d['name'], "en": d['name']}, 
+        "description": {"uk": d['desc'], "en": d['desc']}, 
+        "rooms": d['rooms'], 
+        "beds": d['beds'], 
+        "area": d['area'], 
+        "guests": d['guests'], 
+        "lat": d['lat'], 
+        "lng": d['lng'], 
+        "address": d.get('address', 'N/A'),
+        "price": d['price'], 
+        "img": d.get('img', ''),
+        "is_available": True
+    })
     u = await get_user(callback.from_user.id)
     await callback.message.edit_text("✅ Об'єкт додано!" if u.get('language') == 'uk' else "✅ Object added!")
     await state.clear()
@@ -178,8 +254,103 @@ async def manage_ap_item(callback: CallbackQuery):
     if not ap: return
     name = ap['title'][lang] if isinstance(ap.get('title'), dict) and lang in ap['title'] else ap.get('name', 'Apartments')
     status = ("🟢 Доступний" if ap['is_available'] else "🔴 Заблокований") if lang == 'uk' else ("🟢 Available" if ap['is_available'] else "🔴 Blocked")
-    text = (f"<b>Редагування:</b> {name}\n<b>Статус:</b> {status}") if lang == 'uk' else (f"<b>Editing:</b> {name}\n<b>Status:</b> {status}")
-    await callback.message.edit_text(text, reply_markup=apartment_item_mgmt_kb(ap_id, ap['is_available'], lang=lang), parse_mode="HTML")
+    text = (f"<b>Редагування:</b> {name}\n<b>Локація:</b> {ap.get('lat', 0)}, {ap.get('lng', 0)}\n<b>Статус:</b> {status}") if lang == 'uk' else (f"<b>Editing:</b> {name}\n<b>Location:</b> {ap.get('lat', 0)}, {ap.get('lng', 0)}\n<b>Status:</b> {status}")
+    
+    # Check both img and photo for backwards compatibility if needed, but per request using 'img'
+    img = ap.get('img', ap.get('photo'))
+    if img:
+        try:
+            await callback.message.answer_photo(img, caption=text, reply_markup=apartment_item_mgmt_kb(ap_id, ap['is_available'], lang=lang), parse_mode="HTML")
+            await callback.message.delete()
+        except:
+            await callback.message.edit_text(text, reply_markup=apartment_item_mgmt_kb(ap_id, ap['is_available'], lang=lang), parse_mode="HTML")
+    else:
+        await callback.message.edit_text(text, reply_markup=apartment_item_mgmt_kb(ap_id, ap['is_available'], lang=lang), parse_mode="HTML")
+
+@router.callback_query(F.data.startswith("edit_ap_"))
+async def edit_ap_start(callback: CallbackQuery):
+    ap_id = callback.data.split("_")[2]
+    u = await get_user(callback.from_user.id)
+    lang = u.get('language', 'uk')
+    await callback.message.edit_text("Оберіть поле для редагування:" if lang=="uk" else "Choose field to edit:", reply_markup=apartment_edit_fields_kb(ap_id, lang))
+
+@router.callback_query(F.data.startswith("efield_"))
+async def edit_field_prompt(callback: CallbackQuery, state: FSMContext):
+    parts = callback.data.split("_")
+    ap_id, field = parts[1], parts[2]
+    u = await get_user(callback.from_user.id)
+    lang = u.get('language', 'uk')
+    
+    await state.update_data(edit_ap_id=ap_id, edit_field=field)
+    msg = f"Введіть нове значення для поля {field}:" if lang=="uk" else f"Enter new value for {field}:"
+    if field == "img":
+        msg = "Надішліть нове фото або посилання:" if lang=="uk" else "Send new photo or link:"
+    elif field == "address":
+        msg = "Надішліть нову локацію 📎 або посилання з Google Maps:" if lang=="uk" else "Send new location 📎 or Google Maps link:"
+        
+    await callback.message.edit_text(msg)
+    await state.set_state(AdminStates.editing_apartment_field)
+
+@router.message(AdminStates.editing_apartment_field, F.location)
+@router.message(AdminStates.editing_apartment_field, F.text)
+@router.message(AdminStates.editing_apartment_field, F.photo)
+async def edit_field_save(message: Message, state: FSMContext):
+    data = await state.get_data()
+    ap_id, field = data['edit_ap_id'], data['edit_field']
+    u = await get_user(message.from_user.id)
+    lang = u.get('language', 'uk')
+    
+    val = message.text
+    if field == "img" and message.photo:
+        val = message.photo[-1].file_id
+    elif field == "address":
+        if message.location:
+            lat, lng = message.location.latitude, message.location.longitude
+            await update_apartment(ap_id, {"lat": lat, "lng": lng, "address": f"TG Location: {lat}, {lng}"})
+        else:
+            lat, lng = await resolve_coords_from_text(message.text)
+            if lat == 0 and lng == 0:
+                await message.answer("❌ Не вдалося розпізнати локацію. Спробуйте ще раз:" if lang=="uk" else "❌ Could not recognize location. Try again:")
+                return
+            await update_apartment(ap_id, {"lat": lat, "lng": lng, "address": message.text})
+            
+        await message.answer("✅ Локацію оновлено!" if lang=="uk" else "✅ Location updated!")
+        await state.clear()
+        class MockCB:
+            def __init__(self, msg, uid):
+                self.message = msg
+                self.from_user = type('obj', (object,), {'id': uid})
+                self.data = f"manage_ap_{ap_id}"
+            async def answer(self, *args, **kwargs): pass
+        await manage_ap_item(MockCB(message, message.from_user.id))
+        return
+    elif field in ["price", "rooms", "beds", "guests"]:
+        try: val = int(val)
+        except: 
+            await message.answer("❌ Має бути числом")
+            return
+    elif field in ["area"]:
+        try: val = float(val.replace(',', '.'))
+        except:
+            await message.answer("❌ Має бути числом")
+            return
+    elif field in ["title", "description"]:
+        ap = await get_apartment(ap_id)
+        current_val = ap.get(field, {})
+        if isinstance(current_val, dict):
+            current_val[lang] = message.text
+            val = current_val
+
+    await update_apartment(ap_id, {field: val})
+    await message.answer("✅ Оновлено!" if lang=="uk" else "✅ Updated!")
+    await state.clear()
+    class MockCB:
+        def __init__(self, msg, uid):
+            self.message = msg
+            self.from_user = type('obj', (object,), {'id': uid})
+            self.data = f"manage_ap_{ap_id}"
+        async def answer(self, *args, **kwargs): pass
+    await manage_ap_item(MockCB(message, message.from_user.id))
 
 @router.callback_query(F.data.startswith("toggle_ap_"))
 async def toggle_ap(callback: CallbackQuery):
@@ -194,6 +365,7 @@ async def toggle_ap(callback: CallbackQuery):
 async def del_ap(callback: CallbackQuery):
     await delete_apartment(callback.data.split("_")[2])
     await callback.answer("Видалено" if (await get_user(callback.from_user.id)).get('language') == 'uk' else "Deleted")
+    await callback.message.delete()
     await admin_aps(callback.message)
 
 @router.callback_query(F.data == "admin_apartments_back")
@@ -329,3 +501,22 @@ async def admin_chat_start(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer("Введіть ваше повідомлення гостю:" if u.get('language') == 'uk' else "Enter your message to the guest:")
     await state.set_state(AdminStates.replying_to_user)
     await callback.answer()
+
+@router.message(AdminStates.replying_to_user)
+async def admin_reply_send(message: Message, state: FSMContext, bot: Bot):
+    data = await state.get_data()
+    tid = data['chat_id']
+    u = await get_user(message.from_user.id)
+    lang = u.get('language', 'uk')
+    
+    try:
+        target_u = await get_user(tid)
+        t_lang = target_u.get('language', 'uk') if target_u else 'uk'
+        
+        header = "📩 <b>Повідомлення від адміністратора:</b>\n\n" if t_lang == 'uk' else "📩 <b>Message from administrator:</b>\n\n"
+        await bot.send_message(tid, header + message.text, reply_markup=user_reply_inline_kb(t_lang), parse_mode="HTML")
+        await message.answer("✅ Відправлено!" if lang == 'uk' else "✅ Sent!")
+    except Exception as e:
+        await message.answer(f"❌ Помилка: {e}")
+    
+    await state.clear()
