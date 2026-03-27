@@ -78,7 +78,7 @@ def admin_reply_inline_kb(user_id, lang="uk"):
 
 def booking_action_inline_kb(booking_id, lang="uk", status="pending"):
     builder = InlineKeyboardBuilder()
-    if status in ["confirmed", "paid_50"]:
+    if status in ["confirmed", "paid_50", "completed"]:
         text = "✉️ Зв'язатися" if lang == "uk" else "✉️ Contact"
         builder.row(InlineKeyboardButton(text=text, callback_data=f"chat_{booking_id}"))
     else:

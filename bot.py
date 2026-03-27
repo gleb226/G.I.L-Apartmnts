@@ -16,7 +16,7 @@ async def daily_reminder(bot: Bot):
             now = datetime.datetime.now()
             today_str = now.strftime("%d.%m.%Y")
             
-            if now.hour >= 9 and last_reminder_date != today_str:
+            if now.hour >= 10 and last_reminder_date != today_str:
                 bookings = await db.bookings.find({
                     "start_date": today_str,
                     "status": {"$in": ["paid_50", "confirmed"]}
@@ -48,6 +48,21 @@ async def daily_reminder(bot: Bot):
                     except:
                         pass
                 
+                all_active = await db.bookings.find({
+                    "status": {"$in": ["paid_50", "confirmed", "completed"]}
+                }).to_list(None)
+                
+                for b in all_active:
+                    try:
+                        end_dt = datetime.datetime.strptime(b['end_date'], "%d.%m.%Y")
+                        if end_dt.date() < now.date():
+                            await db.bookings.update_one(
+                                {"_id": b["_id"]},
+                                {"$set": {"status": "archived"}}
+                            )
+                    except:
+                        pass
+                        
                 last_reminder_date = today_str
             
             await asyncio.sleep(60) 
