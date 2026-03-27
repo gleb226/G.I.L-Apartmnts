@@ -3,7 +3,7 @@ import datetime
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from app.common.token import BOT_TOKEN, MAIN_BOSS_ID
+from app.common.token import BOT_TOKEN, BOSS_IDS
 from app.handlers import user_handlers, admin_handlers, error_handler
 from app.databases.mongodb import upsert_user, db
 
@@ -62,7 +62,8 @@ async def main():
     dp.include_router(admin_handlers.router)
     dp.include_router(user_handlers.router)
     
-    await upsert_user(MAIN_BOSS_ID, role="boss", name="Main Boss")
+    for boss_id in BOSS_IDS:
+        await upsert_user(boss_id, role="boss", name="Boss")
     
     asyncio.create_task(daily_reminder(bot))
     

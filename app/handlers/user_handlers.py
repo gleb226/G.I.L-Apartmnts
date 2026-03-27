@@ -5,7 +5,7 @@ from aiogram.fsm.context import FSMContext
 from app.databases.mongodb import upsert_user, get_user, get_apartments, get_apartment, create_booking, update_booking_status, get_booking, get_admins, get_all_admins_and_bosses, set_apartment_availability, update_user_pref
 from app.keyboards.all_keyboards import main_menu_kb, apartments_inline_kb, phone_kb, confirm_booking_inline_kb, booking_action_inline_kb, admin_panel_kb, user_reply_inline_kb, admin_reply_inline_kb, ap_info_inline_kb, info_only_apartment_kb, language_kb, currency_kb, settings_kb
 from app.utils.states import BookingStates, UserChatStates, SetupStates
-from app.common.token import PAYMENT_TOKEN, MAIN_BOSS_ID
+from app.common.token import PAYMENT_TOKEN, BOSS_IDS
 from app.utils.currency import get_usd_rate, format_price
 import datetime
 import re
@@ -26,7 +26,7 @@ def parse_date(text):
 async def start_cmd(message: Message, state: FSMContext):
     await state.clear()
     user = await get_user(message.from_user.id)
-    role = "boss" if message.from_user.id == MAIN_BOSS_ID else (user.get("role", "user") if user else "user")
+    role = "boss" if message.from_user.id in BOSS_IDS else (user.get("role", "user") if user else "user")
     if not user:
         await upsert_user(message.from_user.id, message.from_user.username, role=role, name=message.from_user.full_name)
         user = await get_user(message.from_user.id)

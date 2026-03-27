@@ -1,5 +1,5 @@
 from motor.motor_asyncio import AsyncIOMotorClient
-from app.common.token import MONGODB_URI, MAIN_BOSS_ID
+from app.common.token import MONGODB_URI, BOSS_IDS
 from bson import ObjectId
 import datetime
 
@@ -24,7 +24,7 @@ async def upsert_user(user_id, username=None, phone=None, role="user", name=None
     if language: update_data["language"] = language
     if currency: update_data["currency"] = currency
     
-    if user_id == MAIN_BOSS_ID:
+    if user_id in BOSS_IDS:
         update_data["role"] = "boss"
     elif role != "user":
         update_data["role"] = role

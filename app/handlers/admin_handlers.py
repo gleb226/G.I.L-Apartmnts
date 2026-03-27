@@ -4,7 +4,7 @@ from aiogram.fsm.context import FSMContext
 from app.databases.mongodb import get_user, get_apartments, add_apartment, delete_apartment, get_apartment, set_apartment_availability, get_booking, update_booking_status, set_user_role, get_user_by_query, get_active_bookings, get_all_admins_and_bosses, update_user_pref
 from app.keyboards.all_keyboards import admin_panel_kb, apartment_mgmt_inline_kb, apartment_item_mgmt_kb, staff_mgmt_inline_kb, booking_action_inline_kb, user_reply_inline_kb, staff_delete_inline_kb, admin_reply_inline_kb, confirm_ap_add_kb
 from app.utils.states import AdminStates
-from app.common.token import PAYMENT_TOKEN, MAIN_BOSS_ID
+from app.common.token import PAYMENT_TOKEN
 from app.utils.currency import get_usd_rate, format_price
 
 router = Router()
