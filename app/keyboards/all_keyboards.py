@@ -84,18 +84,13 @@ def user_reply_inline_kb(lang="uk"):
 
 def booking_action_inline_kb(booking_id, lang="uk", status="pending"):
     builder = InlineKeyboardBuilder()
-    if status in ["confirmed", "paid_50", "completed"]:
-        builder.row(InlineKeyboardButton(text="✉️ Зв'язатися" if lang == "uk" else "✉️ Contact", callback_data=f"chat_{booking_id}"))
-        builder.row(InlineKeyboardButton(text="❌ Скасувати" if lang == "uk" else "❌ Cancel", callback_data=f"reject_{booking_id}"))
+    if status in ["confirmed", "completed"]:
+        builder.row(InlineKeyboardButton(text="✉️ Написати гостю" if lang == "uk" else "✉️ Message guest", callback_data=f"chat_{booking_id}"))
+        builder.row(InlineKeyboardButton(text="❌ Скасувати бронь" if lang == "uk" else "❌ Cancel booking", callback_data=f"reject_{booking_id}"))
     else:
-        if lang == "uk":
-            builder.row(InlineKeyboardButton(text="✅ Підтвердити", callback_data=f"approve_{booking_id}"))
-            builder.row(InlineKeyboardButton(text="❌ Відхилити", callback_data=f"reject_{booking_id}"))
-            builder.row(InlineKeyboardButton(text="✉️ Зв'язатися", callback_data=f"chat_{booking_id}"))
-        else:
-            builder.row(InlineKeyboardButton(text="✅ Approve", callback_data=f"approve_{booking_id}"))
-            builder.row(InlineKeyboardButton(text="❌ Reject", callback_data=f"reject_{booking_id}"))
-            builder.row(InlineKeyboardButton(text="✉️ Contact", callback_data=f"chat_{booking_id}"))
+        builder.row(InlineKeyboardButton(text="✅ Підтвердити" if lang == "uk" else "✅ Approve", callback_data=f"approve_{booking_id}"))
+        builder.row(InlineKeyboardButton(text="❌ Відхилити" if lang == "uk" else "❌ Reject", callback_data=f"reject_{booking_id}"))
+        builder.row(InlineKeyboardButton(text="✉️ Написати гостю" if lang == "uk" else "✉️ Message guest", callback_data=f"chat_{booking_id}"))
     return builder.as_markup()
 
 def staff_mgmt_inline_kb(lang="uk"):

@@ -300,11 +300,11 @@ async def approve_booking_handler(callback: CallbackQuery, bot: Bot):
         await update_booking_status(b_id, "confirmed")
         user = await get_user(b['user_id'])
         lang = user.get('language', 'uk') if user else 'uk'
-        txt = "✅ Ваше бронювання підтверджено! Ми чекаємо на вас." if lang == 'uk' else "✅ Your booking is confirmed! We are waiting for you."
+        txt = "✅ <b>Ваше бронювання підтверджено!</b>\n\nМи чекаємо на вас. Не забудьте сплатити залишок у день заїзду." if lang == 'uk' else "✅ <b>Your booking is confirmed!</b>\n\nWe are waiting for you. Don't forget to pay the remainder on your check-in day."
         await bot.send_message(b['user_id'], txt, parse_mode="HTML")
     u = await get_user(callback.from_user.id)
     await callback.message.edit_reply_markup(reply_markup=booking_action_inline_kb(b_id, u.get('language', 'uk'), "confirmed"))
-    await callback.answer()
+    await callback.answer("Підтверджено")
 
 @router.callback_query(F.data.startswith("reject_"))
 async def reject_booking_handler(callback: CallbackQuery, bot: Bot):
@@ -315,7 +315,7 @@ async def reject_booking_handler(callback: CallbackQuery, bot: Bot):
         await set_apartment_availability(str(b['ap_id']), True)
         user = await get_user(b['user_id'])
         lang = user.get('language', 'uk') if user else 'uk'
-        user_msg = ("❌ <b>Бронювання скасовано!</b>\n\nНа жаль, ваше бронювання було відхилено або скасовано адміністратором. Кошти будуть повернуті найближчим часом." if lang == 'uk' else "❌ <b>Booking cancelled!</b>\n\nUnfortunately, your booking has been rejected or cancelled by the admin. Funds will be returned shortly.")
+        user_msg = ("❌ <b>Бронювання скасовано!</b>\n\nНа жаль, ваше бронювання було відхилено або скасовано адміністратором. Кошти за передплату будуть повернуті вам найближчим часом." if lang == 'uk' else "❌ <b>Booking cancelled!</b>\n\nUnfortunately, your booking has been rejected or cancelled by the admin. The prepayment will be returned to you shortly.")
         await bot.send_message(b['user_id'], user_msg, parse_mode="HTML")
     await callback.answer("Скасовано")
     await callback.message.delete()

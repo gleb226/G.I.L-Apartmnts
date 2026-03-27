@@ -201,7 +201,7 @@ async def checkout_input(message: Message, state: FSMContext):
         return
 
     total_price = data['price'] * (dt - data['checkin']).days
-    if total_price > 100000: # Portmone limit example
+    if total_price > 100000:
         await message.answer("⚠️ Сума бронювання перевищує ліміт оплати. Зв'яжіться з адміністратором або оберіть менший термін." if u['language'] == 'uk' else "⚠️ Booking amount exceeds payment limit. Contact admin or choose a shorter term.")
         return
 
@@ -210,13 +210,48 @@ async def checkout_input(message: Message, state: FSMContext):
     await state.set_state(BookingStates.entering_wishes)
 
 @router.message(BookingStates.entering_wishes)
-async def wishes_input(message: Message, state: FSMContext):
+async def wishes_input(message: Message, state: FSMContext, bot: Bot):
     data = await state.get_data()
     u = await get_user(message.from_user.id)
     w = message.text if message.text.lower() not in ['ні', 'no'] else "-"
     b_id = await create_booking(u['user_id'], data['ap_id'], data['checkin_str'], data['checkout_str'], data['phone'], w, data['total_price'])
     p = format_price(data['total_price']*0.5, await get_usd_rate(), u.get('currency', 'uah'))
     
+    # Admin notification (Only for admins, not boss)
+    for a in await get_admins():
+        try:
+            al = a.get('language', 'uk')
+            guest_name = u.get('name', 'N/A')
+            guest_username = f"@{u.get('username')}" if u.get('username') else 'N/A'
+            guest_phone = u.get('phone', 'N/A')
+            guest_id = u['user_id']
+
+            if al == 'uk':
+                admin_msg = (
+                    f"🔔 <b>НОВЕ БРОНЮВАННЯ (очікує оплати)!</b>\n\n"
+                    f"🏠 <b>Об'єкт:</b> {data['ap_name']}\n"
+                    f"📅 <b>Дати:</b> {data['checkin_str']} — {data['checkout_str']}\n"
+                    f"📝 <b>Побажання:</b> {w}\n\n"
+                    f"👤 <b>Гість:</b> {guest_name}\n"
+                    f"🔗 <b>Username:</b> {guest_username}\n"
+                    f"📞 <b>Телефон:</b> {guest_phone}\n"
+                    f"🆔 <b>ID:</b> <code>{guest_id}</code>"
+                )
+            else:
+                admin_msg = (
+                    f"🔔 <b>NEW BOOKING (awaiting payment)!</b>\n\n"
+                    f"🏠 <b>Object:</b> {data['ap_name']}\n"
+                    f"📅 <b>Dates:</b> {data['checkin_str']} — {data['checkout_str']}\n"
+                    f"📝 <b>Wishes:</b> {w}\n\n"
+                    f"👤 <b>Guest:</b> {guest_name}\n"
+                    f"🔗 <b>Username:</b> {guest_username}\n"
+                    f"📞 <b>Phone:</b> {guest_phone}\n"
+                    f"🆔 <b>ID:</b> <code>{guest_id}</code>"
+                )
+            await bot.send_message(a['user_id'], admin_msg, reply_markup=booking_action_inline_kb(b_id, al, "pending_50"), parse_mode="HTML")
+        except Exception as e:
+            await log_error(f"Error notifying admin: {e}", traceback.format_exc())
+
     if u['language'] == 'uk':
         msg = (
             f"🧾 <b>Ваше замовлення сформовано!</b>\n\n"
@@ -305,25 +340,25 @@ async def success_pay(message: Message, bot: Bot):
 
     if "pay50_" in message.successful_payment.invoice_payload and "final" not in message.successful_payment.invoice_payload:
         await update_booking_status(b_id, "paid_50")
-        await set_apartment_availability(str(b['ap_id']), False)
         
         success_msg = (
             "🎉 <b>Вітаємо! Передплату отримано.</b>\n\n"
-            "Ми забронювали цей об'єкт спеціально для вас. Нагадування про фінальну оплату та деталі заїзду прийдуть вранці у день вашого візиту.\n\n"
+            "Ми забронювали ці дати спеціально для вас. Нагадування про фінальну оплату та деталі заїзду прийдуть вранці у день вашого візиту.\n\n"
             "Дякуємо, що обрали G.I.L Apartments!"
             if lang == 'uk' else
             "🎉 <b>Success! Prepayment received.</b>\n\n"
-            "We have secured this object specifically for you. A reminder for the final payment and check-in details will arrive on the morning of your visit.\n\n"
+            "We have secured these dates specifically for you. A reminder for the final payment and check-in details will arrive on the morning of your visit.\n\n"
             "Thank you for choosing G.I.L Apartments!"
         )
         await message.answer(success_msg, parse_mode="HTML")
         
-        for a in await get_all_admins_and_bosses():
+        # Notify only admins
+        for a in await get_admins():
             try:
                 al = a.get('language', 'uk')
                 await bot.send_message(a['user_id'], f"🆕 Guest paid 50%!" if al == 'en' else f"🆕 Гість оплатив 50%!", reply_markup=booking_action_inline_kb(b_id, al, "paid_50"))
             except Exception as e:
-                await log_error(f"Error notifying admin {a.get('user_id')} about 50% payment: {e}", traceback.format_exc())
+                await log_error(f"Error notifying admin about 50% payment: {e}", traceback.format_exc())
     elif "pay50_final" in message.successful_payment.invoice_payload:
         await update_booking_status(b_id, "completed")
         
@@ -338,12 +373,13 @@ async def success_pay(message: Message, bot: Bot):
         )
         await message.answer(final_msg, parse_mode="HTML")
         
-        for a in await get_all_admins_and_bosses():
+        # Notify only admins
+        for a in await get_admins():
             try:
                 al = a.get('language', 'uk')
                 await bot.send_message(a['user_id'], f"✅ Full Payment received!" if al == 'en' else f"✅ Отримано повну оплату!", reply_markup=booking_action_inline_kb(b_id, al, "completed"))
             except Exception as e:
-                await log_error(f"Error notifying admin {a.get('user_id')} about final payment: {e}", traceback.format_exc())
+                await log_error(f"Error notifying admin about final payment: {e}", traceback.format_exc())
 
 @router.message(F.text == "📊 Адмін-панель")
 @router.message(F.text == "📊 Admin Panel")
