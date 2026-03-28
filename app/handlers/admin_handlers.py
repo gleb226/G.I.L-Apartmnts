@@ -1,7 +1,7 @@
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, LabeledPrice, PhotoSize, Location
 from aiogram.fsm.context import FSMContext
-from app.databases.mongodb import get_user, get_apartments, add_apartment, delete_apartment, get_apartment, set_apartment_availability, get_booking, update_booking_status, set_user_role, get_user_by_query, get_active_bookings, get_all_admins_and_bosses, update_user_pref, delete_booking, log_error, get_admins, update_apartment
+from app.databases.mongodb import get_user, get_apartments, add_apartment, delete_apartment, get_apartment, get_booking, update_booking_status, set_user_role, get_user_by_query, get_active_bookings, get_all_admins_and_bosses, update_user_pref, delete_booking, log_error, get_admins, update_apartment
 from app.keyboards.all_keyboards import admin_panel_kb, apartment_mgmt_inline_kb, apartment_item_mgmt_kb, staff_mgmt_inline_kb, booking_action_inline_kb, user_reply_inline_kb, staff_delete_inline_kb, admin_reply_inline_kb, confirm_ap_add_kb, apartment_edit_fields_kb
 from app.utils.states import AdminStates
 from app.common.token import PAYMENT_TOKEN, GOOGLE_MAPS_API_KEY
@@ -14,23 +14,27 @@ import aiohttp
 router = Router()
 
 async def resolve_coords_from_text(text: str):
-    # Try to find @lat,lng in URL
-    match = re.search(r'@([-+]?\d+\.\d+),([-+]?\d+\.\d+)', text)
-    if match:
-        return float(match.group(1)), float(match.group(2))
+    patterns = [
+        r'([-+]?\d+\.\d+),\s*([-+]?\d+\.\d+)',
+        r'[qQ](?:uery)?=([-+]?\d+\.\d+),([-+]?\d+\.\d+)',
+        r'!3d([-+]?\d+\.\d+)!4d([-+]?\d+\.\d+)',
+        r'place/([-+]?\d+\.\d+),([-+]?\d+\.\d+)'
+    ]
     
-    # If it's a short link, try to resolve it
-    if "maps.app.goo.gl" in text or "goo.gl/maps" in text:
+    for p in patterns:
+        match = re.search(p, text)
+        if match:
+            return float(match.group(1)), float(match.group(2))
+    
+    if "maps" in text or "goo.gl" in text or "http" in text:
         try:
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
                 async with session.get(text, allow_redirects=True) as response:
                     final_url = str(response.url)
-                    match = re.search(r'@([-+]?\d+\.\d+),([-+]?\d+\.\d+)', final_url)
-                    if match:
-                        return float(match.group(1)), float(match.group(2))
-                    match = re.search(r'q=([-+]?\d+\.\d+),([-+]?\d+\.\d+)', final_url)
-                    if match:
-                        return float(match.group(1)), float(match.group(2))
+                    for p in patterns:
+                        match = re.search(p, final_url)
+                        if match:
+                            return float(match.group(1)), float(match.group(2))
         except:
             pass
             
@@ -256,7 +260,6 @@ async def manage_ap_item(callback: CallbackQuery):
     status = ("🟢 Доступний" if ap['is_available'] else "🔴 Заблокований") if lang == 'uk' else ("🟢 Available" if ap['is_available'] else "🔴 Blocked")
     text = (f"<b>Редагування:</b> {name}\n<b>Локація:</b> {ap.get('lat', 0)}, {ap.get('lng', 0)}\n<b>Статус:</b> {status}") if lang == 'uk' else (f"<b>Editing:</b> {name}\n<b>Location:</b> {ap.get('lat', 0)}, {ap.get('lng', 0)}\n<b>Status:</b> {status}")
     
-    # Check both img and photo for backwards compatibility if needed, but per request using 'img'
     img = ap.get('img', ap.get('photo'))
     if img:
         try:
@@ -357,7 +360,7 @@ async def toggle_ap(callback: CallbackQuery):
     ap_id = callback.data.split("_")[2]
     ap = await get_apartment(ap_id)
     if ap:
-        await set_apartment_availability(ap_id, not ap['is_available'])
+        await update_apartment(ap_id, {"is_available": not ap['is_available']})
         await callback.answer("Змінено!" if (await get_user(callback.from_user.id)).get('language') == 'uk' else "Changed!")
     await manage_ap_item(callback)
 
@@ -484,7 +487,7 @@ async def reject_booking_handler(callback: CallbackQuery, bot: Bot):
     b = await get_booking(b_id)
     if b:
         await update_booking_status(b_id, "rejected")
-        await set_apartment_availability(str(b['ap_id']), True)
+        await update_apartment(str(b['ap_id']), {"is_available": True})
         user = await get_user(b['user_id'])
         lang = user.get('language', 'uk') if user else 'uk'
         user_msg = ("❌ <b>Бронювання скасовано!</b>\n\nНа жаль, ваше бронювання було відхилено або скасовано адміністратором. Кошти за передплату будуть повернуті вам найближчим часом." if lang == 'uk' else "❌ <b>Booking cancelled!</b>\n\nUnfortunately, your booking has been rejected or cancelled by the admin. The prepayment will be returned to you shortly.")

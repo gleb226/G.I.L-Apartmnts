@@ -2,7 +2,7 @@ from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, PreCheckoutQuery, LabeledPrice
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
-from app.databases.mongodb import upsert_user, get_user, get_apartments, get_apartment, create_booking, update_booking_status, get_booking, get_admins, get_all_admins_and_bosses, set_apartment_availability, update_user_pref, log_error, is_apartment_free
+from app.databases.mongodb import upsert_user, get_user, get_apartments, get_apartment, create_booking, update_booking_status, get_booking, get_admins, get_all_admins_and_bosses, update_user_pref, log_error, is_apartment_free
 from app.keyboards.all_keyboards import main_menu_kb, apartments_inline_kb, phone_kb, confirm_booking_inline_kb, booking_action_inline_kb, admin_panel_kb, user_reply_inline_kb, admin_reply_inline_kb, ap_info_inline_kb, info_only_apartment_kb, language_kb, currency_kb, settings_kb
 from app.utils.states import BookingStates, UserChatStates, SetupStates, AdminStates
 from app.common.token import PAYMENT_TOKEN, BOSS_IDS
