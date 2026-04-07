@@ -1,0 +1,9 @@
+aiogram
+motor
+dnspython
+python-dotenv
+aiohttp
+googlemaps
+Pillow
+deep-translator
+certifi
